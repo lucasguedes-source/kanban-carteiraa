@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>📋 Kanban de Carteira</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0F172A; font-family: 'Segoe UI', sans-serif; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0F172A; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useCallback } = React;
+
+    const SHEET_ID   = "1Fc6oKPV8lm3u6FU59ayiGG0vN4XHtoSMmvAZik0dLPc";
+    const SHEET_NAME = "new base";
+    const COL = { status: 0, id: 2, nome: 3, nivel: 4, resp: 5, mrr: 6, engaj: 8 };
+
+    const COLUNAS = [
+      { id: "inicial",     label: "Fase Inicial",     emoji: "🌱", borda: "#94A3B8" },
+      { id: "contato",     label: "Contato Realizado", emoji: "📞", borda: "#90CDF4" },
+      { id: "retencao",    label: "Retenção",          emoji: "🛡️", borda: "#FC8181" },
+      { id: "expansao",    label: "Expansão",          emoji: "🚀", borda: "#68D391" },
+      { id: "capacitacao", label: "Capacitação",       emoji: "🎓", borda: "#B794F4" },
+      { id: "mentoria",    label: "Mentoria",          emoji: "💡", borda: "#F6AD55" },
+    ];
+
+    const NIVEL_COR = {
+      "Elite":        { bg: "#1A1A2E", text: "#FFD700" },
+      "Referência":   { bg: "#7B2D8B", text: "#FFFFFF" },
+      "Especialista": { bg: "#1565C0", text: "#FFFFFF" },
+      "Certificado":  { bg: "#2E7D32", text: "#FFFFFF" },
+      "Associado":    { bg: "#E65100", text: "#FFFFFF" },
+    };
+
+    const engajColor = (v) => {
+      if (v === null || v === undefined || isNaN(v)) return "#9E9E9E";
+      if (v >= 80) return "#4ADE80";
+      if (v >= 50) return "#FBBF24";
+      return "#F87171";
+    };
+
+    const parsePct = (val) => {
+      if (val === null || val === undefined || val === "") return null;
+      const n = parseFloat(String(val).replace("%", "").replace(",", "."));
+      return isNaN(n) ? null : n;
+    };
+
+    const parseMrr = (val) => {
+      if (!val) return 0;
+      const n = parseFloat(String(val).replace(/[^0-9,.]/g, "").replace(",", "."));
+      return isNaN(n) ? 0 : Math.round(n);
+    };
+
+    const STORAGE_KEY = "kanban_estado_v3";
+    const carregarEstado = () => {
+      try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"); }
+      catch { return {}; }
+    };
+
+    function Sep() {
+      return <div style={{ width: 1, background: "#1E293B", margin: "2px 0", alignSelf: "stretch" }} />;
+    }
+
+    function MCard({ valor, label, cor, bg, borda, lg, sm }) {
+      return (
+        <div style={{ background: bg, border: `1px solid ${borda}`, borderRadius: 9, padding: sm ? "6px 9px" : "8px 13px", display: "flex", flexDirection: "column", justifyContent: "center", minWidth: sm ? 54 : lg ? 78 : 68 }}>
+          <div style={{ fontSize: lg ? 20 : 17, fontWeight: 800, color: cor, lineHeight: 1 }}>{valor}</div>
+          <div style={{ fontSize: 9, color: cor + "99", marginTop: 2, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.4px", whiteSpace: "nowrap" }}>{label}</div>
+        </div>
+      );
+    }
+
+    function Label({ children }) {
+      return <div style={{ fontSize: 10, color: "#64748B", marginBottom: 5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>{children}</div>;
+    }
+
+    function Card({ cliente, col, est, onDragStart, onClick, onToggleReuniao }) {
+      const nc = NIVEL_COR[cliente.nivel] || { bg: "#334155", text: "#fff" };
+      const [hover, setHover] = useState(false);
+      return (
+        <div
+          draggable onDragStart={onDragStart} onClick={onClick}
+          onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+          style={{ background: hover ? "#263147" : "#1E293B", border: "1px solid #2D3748", borderLeft: `3px solid ${col.borda}`, borderRadius: 8, padding: "8px 9px", cursor: "grab", userSelect: "none", transition: "background 0.1s" }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 4 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: "#F1F5F9", lineHeight: 1.3, flex: 1 }}>{cliente.nome}</span>
+            <span style={{ fontSize: 9, fontWeight: 700, background: nc.bg, color: nc.text, borderRadius: 4, padding: "1px 5px", whiteSpace: "nowrap", flexShrink: 0 }}>{cliente.nivel}</span>
+          </div>
+          <div style={{ display: "flex", gap: 5, marginTop: 5, alignItems: "center" }}>
+            <span style={{ fontSize: 10, color: "#64748B" }}>#{cliente.id}</span>
+            <span style={{ fontSize: 10, color: "#4ADE80", marginLeft: "auto" }}>R$ {cliente.mrr.toLocaleString("pt-BR")}</span>
+            {cliente.engaj !== null && (
+              <span style={{ fontSize: 9, fontWeight: 700, color: engajColor(cliente.engaj), background: engajColor(cliente.engaj) + "22", borderRadius: 4, padding: "1px 5px" }}>
+                {cliente.engaj}%
+              </span>
+            )}
+          </div>
+          <div style={{ marginTop: 6 }}>
+            <button onClick={onToggleReuniao} style={{ background: est.reuniao ? "#F59E0B22" : "transparent", border: est.reuniao ? "1px solid #F59E0B" : "1px dashed #334155", borderRadius: 5, padding: "2px 7px", fontSize: 10, color: est.reuniao ? "#F59E0B" : "#475569", cursor: "pointer", fontWeight: est.reuniao ? 700 : 400 }}>
+              📅 {est.reuniao ? "Reunião agendada" : "Agendar reunião"}
+            </button>
+          </div>
+          {(est.obs || est.projeto) && (
+            <div style={{ marginTop: 5, fontSize: 10, color: "#94A3B8", borderTop: "1px solid #2D3748", paddingTop: 5 }}>
+              {est.projeto && <div>📁 {est.projeto}</div>}
+              {est.obs && <div>💬 {est.obs}</div>}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function Modal({ cliente, est, colunas, onMover, onFechar, onToggleReuniao, setObs, setProjeto }) {
+      const nc = NIVEL_COR[cliente.nivel] || { bg: "#334155", text: "#fff" };
+      const colunaAtual = colunas.find(c => c.id === est.coluna);
+      return (
+        <div onClick={onFechar} style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 16, padding: 22, width: "100%", maxWidth: 460, maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+              <div style={{ flex: 1 }}>
+                <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#F8FAFC" }}>{cliente.nome}</h2>
+                <div style={{ display: "flex", gap: 7, marginTop: 5, flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ background: nc.bg, color: nc.text, borderRadius: 4, padding: "2px 7px", fontSize: 10, fontWeight: 700 }}>{cliente.nivel}</span>
+                  <span style={{ color: "#64748B", fontSize: 11 }}>#{cliente.id}</span>
+                  <span style={{ color: "#4ADE80", fontSize: 11, fontWeight: 600 }}>R$ {cliente.mrr.toLocaleString("pt-BR")}/mês</span>
+                  {cliente.engaj !== null && <span style={{ color: engajColor(cliente.engaj), fontSize: 11, fontWeight: 600 }}>Engaj: {cliente.engaj}%</span>}
+                </div>
+              </div>
+              <button onClick={onFechar} style={{ background: "none", border: "none", color: "#64748B", fontSize: 18, cursor: "pointer" }}>✕</button>
+            </div>
+
+            <div style={{ fontSize: 12, color: "#94A3B8", marginBottom: 14 }}>
+              👤 <strong style={{ color: "#CBD5E0" }}>{cliente.resp}</strong>
+            </div>
+
+            <Label>Flag</Label>
+            <button onClick={onToggleReuniao} style={{ background: est.reuniao ? "#F59E0B22" : "#0F172A", border: est.reuniao ? "1px solid #F59E0B" : "1px dashed #334155", borderRadius: 8, padding: "8px 12px", marginBottom: 14, color: est.reuniao ? "#F59E0B" : "#64748B", fontSize: 12, fontWeight: est.reuniao ? 700 : 400, cursor: "pointer", width: "100%", textAlign: "left" }}>
+              📅 {est.reuniao ? "✓ Reunião agendada — clique para desmarcar" : "Marcar como reunião agendada"}
+            </button>
+
+            <Label>Etapa atual</Label>
+            <div style={{ background: (colunaAtual?.borda || "#94A3B8") + "22", border: `1px solid ${colunaAtual?.borda || "#94A3B8"}`, borderRadius: 8, padding: "7px 12px", fontSize: 13, color: "#F1F5F9", fontWeight: 600, marginBottom: 14 }}>
+              {colunaAtual?.emoji} {colunaAtual?.label}
+            </div>
+
+            <Label>Projeto / Tipo</Label>
+            <input value={est.projeto} onChange={e => setProjeto(e.target.value)} placeholder="Ex: Mentoria de crescimento, Capacitação ERP..."
+              style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: "7px 12px", color: "#E2E8F0", fontSize: 12, width: "100%", boxSizing: "border-box", outline: "none", marginBottom: 10 }} />
+
+            <Label>Observação</Label>
+            <textarea value={est.obs} onChange={e => setObs(e.target.value)} placeholder="Notas, próximos passos..." rows={3}
+              style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: "7px 12px", color: "#E2E8F0", fontSize: 12, width: "100%", boxSizing: "border-box", outline: "none", resize: "vertical", marginBottom: 18 }} />
+
+            <Label>Mover para</Label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              {colunas.filter(c => c.id !== est.coluna).map(c => (
+                <button key={c.id} onClick={() => onMover(c.id)}
+                  style={{ background: c.borda + "18", border: `1px solid ${c.borda}55`, borderRadius: 8, padding: "8px 12px", color: "#F1F5F9", fontSize: 12, fontWeight: 600, cursor: "pointer", textAlign: "left" }}
+                  onMouseEnter={e => e.currentTarget.style.background = c.borda + "33"}
+                  onMouseLeave={e => e.currentTarget.style.background = c.borda + "18"}
+                >
+                  {c.emoji} {c.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function KanbanClientes() {
+      const [clientes, setClientes]         = useState([]);
+      const [estado, setEstado]             = useState(carregarEstado);
+      const [loading, setLoading]           = useState(true);
+      const [erro, setErro]                 = useState(null);
+      const [ultimaAtu, setUltimaAtu]       = useState(null);
+      const [busca, setBusca]               = useState("");
+      const [modalCliente, setModalCliente] = useState(null);
+      const [dragging, setDragging]         = useState(null);
+      const [dragOver, setDragOver]         = useState(null);
+
+      const fetchClientes = useCallback(async () => {
+        setLoading(true);
+        setErro(null);
+        try {
+          const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(SHEET_NAME)}`;
+          const res  = await fetch(url);
+          const text = await res.text();
+          const json = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
+          const rows = json.table?.rows || [];
+          const lista = [];
+          rows.forEach((row) => {
+            const cells  = row.c || [];
+            const getVal = (i) => cells[i]?.v ?? cells[i]?.f ?? null;
+            const id     = String(getVal(COL.id) ?? "").trim();
+            const nome   = String(getVal(COL.nome) ?? "").trim();
+            const status = String(getVal(COL.status) ?? "").trim();
+            if (!id || !nome || id === "ID" || nome === "name") return;
+            if (!["Ganhei", "Mantido"].includes(status)) return;
+            lista.push({ id, nome,
+              nivel: String(getVal(COL.nivel) ?? "").trim(),
+              resp:  String(getVal(COL.resp)  ?? "").trim(),
+              mrr:   parseMrr(getVal(COL.mrr)),
+              engaj: parsePct(getVal(COL.engaj)),
+            });
+          });
+          setClientes(lista);
+          setUltimaAtu(new Date());
+        } catch {
+          setErro("Não foi possível carregar a planilha. Verifique se ela está pública.");
+        } finally {
+          setLoading(false);
+        }
+      }, []);
+
+      useEffect(() => { fetchClientes(); }, [fetchClientes]);
+      useEffect(() => {
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(estado)); } catch {}
+      }, [estado]);
+
+      const getEst = (id) => estado[id] || { coluna: "inicial", reuniao: false, obs: "", projeto: "" };
+      const setEst = (id, patch) => setEstado(prev => ({ ...prev, [id]: { ...getEst(id), ...patch } }));
+      const handleDrop = (toCol) => { if (dragging) setEst(dragging, { coluna: toCol }); setDragging(null); setDragOver(null); };
+      const porColuna  = (colId) => clientes.filter(c => getEst(c.id).coluna === colId);
+      const filtrados  = (colId) => porColuna(colId).filter(c =>
+        c.nome.toLowerCase().includes(busca.toLowerCase()) ||
+        c.id.includes(busca) ||
+        c.resp.toLowerCase().includes(busca.toLowerCase())
+      );
+
+      const totalBase    = clientes.length;
+      const totalReuniao = clientes.filter(c => getEst(c.id).reuniao).length;
+      const niveisConfig = [
+        { label: "Associado",    cor: "#FB923C" },
+        { label: "Certificado",  cor: "#4ADE80" },
+        { label: "Especialista", cor: "#60A5FA" },
+        { label: "Referência",   cor: "#C084FC" },
+        { label: "Elite",        cor: "#FFD700" },
+      ].map(n => ({ ...n, val: clientes.filter(c => c.nivel === n.label).length }));
+
+      return (
+        <div style={{ fontFamily: "'Segoe UI',sans-serif", background: "#0F172A", minHeight: "100vh", color: "#E2E8F0" }}>
+
+          {/* HEADER */}
+          <div style={{ background: "linear-gradient(135deg,#1E293B 0%,#0F172A 100%)", borderBottom: "1px solid #1E293B", padding: "14px 20px 12px", position: "sticky", top: 0, zIndex: 50 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+              <div>
+                <h1 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#F8FAFC", letterSpacing: "-0.5px" }}>📋 Kanban de Carteira</h1>
+                <p style={{ margin: 0, fontSize: 10, color: "#475569", marginTop: 1 }}>
+                  Lucas Guedes · {loading ? "carregando..." : ultimaAtu ? `atualizado às ${ultimaAtu.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : "—"}
+                </p>
+              </div>
+              <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <button onClick={fetchClientes} disabled={loading} style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: "6px 12px", color: loading ? "#475569" : "#94A3B8", fontSize: 11, cursor: loading ? "not-allowed" : "pointer", fontWeight: 600 }}>
+                  {loading ? "⏳ Carregando..." : "🔄 Atualizar Planilha"}
+                </button>
+                <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="🔍 Buscar cliente, ID ou responsável..."
+                  style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: "6px 12px", color: "#E2E8F0", fontSize: 12, outline: "none", width: 220 }} />
+              </div>
+            </div>
+
+            {erro ? (
+              <div style={{ background: "#450A0A", border: "1px solid #F87171", borderRadius: 8, padding: "8px 14px", fontSize: 12, color: "#F87171" }}>⚠️ {erro}</div>
+            ) : (
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "stretch" }}>
+                <MCard valor={totalBase} label="Total Base" cor="#F8FAFC" bg="#0F172A" borda="#334155" lg />
+                <Sep />
+                {niveisConfig.map(n => <MCard key={n.label} valor={n.val} label={n.label} cor={n.cor} bg={n.cor + "11"} borda={n.cor + "44"} />)}
+                <Sep />
+                <MCard valor={totalReuniao} label="📅 Reuniões" cor={totalReuniao > 0 ? "#F59E0B" : "#475569"} bg={totalReuniao > 0 ? "#F59E0B11" : "#0F172A"} borda={totalReuniao > 0 ? "#F59E0B55" : "#334155"} />
+                <Sep />
+                {COLUNAS.map(c => <MCard key={c.id} valor={porColuna(c.id).length} label={`${c.emoji} ${c.label.split(" ")[0]}`} cor={c.borda} bg={c.borda + "11"} borda={c.borda + "33"} sm />)}
+              </div>
+            )}
+          </div>
+
+          {/* BOARD */}
+          <div style={{ display: "flex", gap: 10, padding: "12px", overflowX: "auto", alignItems: "flex-start", minHeight: "calc(100vh - 145px)" }}>
+            {COLUNAS.map(col => {
+              const cards = filtrados(col.id);
+              const isDragTarget = dragOver === col.id;
+              return (
+                <div key={col.id}
+                  onDragOver={e => { e.preventDefault(); setDragOver(col.id); }}
+                  onDragLeave={() => setDragOver(null)}
+                  onDrop={() => handleDrop(col.id)}
+                  style={{ minWidth: 215, width: 215, flexShrink: 0, background: isDragTarget ? "#1E293B" : "#131C2E", border: isDragTarget ? `2px dashed ${col.borda}` : "1px solid #1E293B", borderRadius: 12, transition: "all 0.15s", display: "flex", flexDirection: "column" }}
+                >
+                  <div style={{ padding: "10px 12px 8px", borderBottom: `2px solid ${col.borda}`, background: col.borda + "18", borderRadius: "12px 12px 0 0" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#F1F5F9" }}>{col.emoji} {col.label}</span>
+                      <span style={{ background: col.borda + "33", color: col.borda, borderRadius: 20, padding: "1px 7px", fontSize: 10, fontWeight: 700 }}>{porColuna(col.id).length}</span>
+                    </div>
+                  </div>
+                  <div style={{ padding: "6px", display: "flex", flexDirection: "column", gap: 5, overflowY: "auto", maxHeight: "calc(100vh - 185px)" }}>
+                    {loading && col.id === "inicial" && <div style={{ textAlign: "center", color: "#475569", fontSize: 11, padding: "20px 0" }}>⏳ Carregando da planilha...</div>}
+                    {!loading && cards.length === 0 && <div style={{ textAlign: "center", color: "#334155", fontSize: 11, padding: "14px 0" }}>Arraste cards aqui</div>}
+                    {cards.map(c => (
+                      <Card key={c.id} cliente={c} col={col} est={getEst(c.id)}
+                        onDragStart={() => setDragging(c.id)}
+                        onClick={() => setModalCliente(c)}
+                        onToggleReuniao={(e) => { e.stopPropagation(); setEst(c.id, { reuniao: !getEst(c.id).reuniao }); }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* MODAL */}
+          {modalCliente && (
+            <Modal
+              cliente={modalCliente} est={getEst(modalCliente.id)} colunas={COLUNAS}
+              onMover={(toCol) => { setEst(modalCliente.id, { coluna: toCol }); setModalCliente(null); }}
+              onFechar={() => setModalCliente(null)}
+              onToggleReuniao={() => setEst(modalCliente.id, { reuniao: !getEst(modalCliente.id).reuniao })}
+              setObs={(v) => setEst(modalCliente.id, { obs: v })}
+              setProjeto={(v) => setEst(modalCliente.id, { projeto: v })}
+            />
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<KanbanClientes />);
+  </script>
+</body>
+</html>
